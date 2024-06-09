@@ -4,6 +4,8 @@ import { useGMStore } from '@/stores/gm';
 import { useStreamStore } from '@/stores/stream';
 import * as prompts from './str';
 
+export const _2_5m = 150000;
+
 // add notes depending on current state (relative to last state)
 // - if there are more viewers, GM should acknowledge and encourage participation
 // - recent messages should be acknowledged
@@ -12,14 +14,39 @@ export function createGMPrompt() {
 	const stream = useStreamStore();
 
 	const _15m = prompts.First15MinInstruct;
-	const sysPrompt = gm.sysMessage.content;
+	const sysPrompt = prompts.InitialSysPrompt;
 	let prompt = sysPrompt;
 	const elapsed = Date.now() - stream.startedAtTS;
 	const elapsedMinutes = Math.floor(elapsed / 60000);
 
+	let instruct = '';
 	if (elapsedMinutes < 15) {
-		prompt = prompt.replace('-INSTRUCT-', _15m);
+		// prompt = prompt.replace('-INSTRUCT-', _15m);
+		instruct = _15m;
 	}
+
+	// is intro25WaitStartedAt set?
+	const intro25Elapsed = Date.now() - gm.intro25WaitStartedAt;
+	// is >= 2.5m elapsed?
+	console.log(gm.intro25WaitStartedAt, intro25Elapsed);
+	if (elapsedMinutes < 15 && intro25Elapsed >= _2_5m) {
+		if (elapsedMinutes <= 4) {
+			instruct += '\n' + prompts._2_5mElapsedFirst;
+			console.log('First 2.5m elapsed');
+		} else {
+			instruct += '\n' + prompts._2_5mElapsedSubsequent;
+			console.log('Subsequent 2.5m elapsed');
+		}
+		if (elapsedMinutes < 15) {
+			gm.intro25WaitStartedAt = Date.now();
+		}
+	} else if (elapsedMinutes < 15) {
+		instruct += '\n' + prompts.IsChatting;
+		console.log('Chatting');
+	}
+	console.log(instruct);
+
+	prompt = prompt.replace('-INSTRUCT-', instruct);
 
 	return prompt;
 }

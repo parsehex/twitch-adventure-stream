@@ -7,6 +7,7 @@ export const useGMStore = defineStore('gm', () => {
 	const isReading = ref(false);
 	const waitStartedAt = ref(0);
 	const speech = ref('');
+	const intro25WaitStartedAt = ref(0);
 	const messages = ref([
 		{
 			id: '0',
@@ -15,6 +16,8 @@ export const useGMStore = defineStore('gm', () => {
 				'This should not be visible. If you see this, alert the developer in your response.',
 		},
 	] as LLMMessage[]);
+
+	const currentIdeas = ref([] as string[]);
 
 	const statusStr = computed(() => {
 		if (isGenerating.value) return 'Generating...';
@@ -39,7 +42,9 @@ export const useGMStore = defineStore('gm', () => {
 		isReading,
 		waitStartedAt,
 		speech,
+		intro25WaitStartedAt,
 		messages,
+		currentIdeas,
 
 		statusStr,
 		sysMessage,

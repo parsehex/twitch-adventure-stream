@@ -53,6 +53,7 @@ interface MessagesCompleteOptions {
 	type?: T;
 	max?: number;
 	temperature?: number;
+	tools?: any[]; // TODO
 }
 
 interface Message {
@@ -63,13 +64,24 @@ interface Message {
 /** Run a chat thread (defaults to `llamacpp`) */
 export async function completeMessages(
 	messages: Message[],
-	{ type, max = 128, temperature = 0.25 }: MessagesCompleteOptions = {}
+	{
+		type,
+		max = 128,
+		temperature = 0.25,
+		tools = [],
+	}: MessagesCompleteOptions = {}
 ): Promise<string> {
 	const payload = {
 		messages,
 		max_tokens: max,
 		temperature,
+		tools,
 	};
+	if (!type) type = 'llamacpp';
+
+	if (tools.length && type === 'llamacpp') {
+		console.warn('llamacpp does not support tools');
+	}
 
 	const url = makeUrl(type, 'message');
 	const response = await fetch(url, {

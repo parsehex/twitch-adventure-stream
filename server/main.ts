@@ -7,6 +7,7 @@ import llamacppRouter from './router/api-llamacpp';
 import openaiRouter from './router/api-openai';
 import sdRouter from './router/sd';
 import ttsRouter from './router/tts';
+import openrouterRouter from './router/api-openrouter';
 
 const app = express();
 app.use(json());
@@ -16,6 +17,7 @@ app.use('/static', express.static('out'));
 
 app.use(llamacppRouter);
 app.use(openaiRouter);
+app.use(openrouterRouter);
 app.use(sdRouter);
 app.use(ttsRouter);
 

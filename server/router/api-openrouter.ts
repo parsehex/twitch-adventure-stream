@@ -13,6 +13,7 @@ openrouterRouter.post('/api/openrouter/message', async (req, res) => {
 		messages,
 		seed,
 		model = DefaultModel,
+		tools,
 	} = req.body || {};
 
 	if (messages.length === 0) {
@@ -26,6 +27,7 @@ openrouterRouter.post('/api/openrouter/message', async (req, res) => {
 		max_tokens,
 		temperature,
 		seed,
+		tools,
 	});
 
 	res.json({ message: aiResponse.choices[0].message });

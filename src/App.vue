@@ -6,18 +6,15 @@
 			<span style="color: #111"> Game</span>
 		</h1>
 		<label>
-			<!-- TTS -->
 			<input type="checkbox" v-model="tts" class="m-2" />
 		</label>
 
-		<!-- input for stream start time -->
 		<input type="time" v-model="stream.startedAt" class="m-2" />
 
-		<!-- input for current viewers -->
 		<input type="number" v-model="stream.currentViewers" class="m-2" />
 
 		<Button class="m-2" @click="startStream">
-			{{ interval ? 'Stop Stream' : 'Start Stream' }}
+			{{ tickMan.running.value ? 'Stop Stream' : 'Start Stream' }}
 		</Button>
 
 		<p class="text-sm text-gray-400">Stream Duration: {{ stream.duration }}</p>
@@ -65,6 +62,21 @@
 		<audio id="audio" class="hidden"></audio>
 	</main>
 
+	<!-- idea: gm has array of `ideas` from chat which are displayed and used for prompting -->
+	<!-- <section
+		class="fixed top-0 w-[350px] p-4 bg-gray-900 whitespace-pre-wrap"
+		v-if="gm.currentIdeas.length"
+	>
+		<p class="text-sm text-gray-400">
+			Current Ideas:
+			<ul>
+				<li v-for="idea in gm.currentIdeas" :key="idea">
+					{{ idea }}
+				</li>
+			</ul>
+		</p>
+	</section> -->
+
 	<!-- section showing current GM prompt -->
 	<section
 		class="fixed top-0 right-0 w-[350px] p-4 bg-gray-900 whitespace-pre-wrap"
@@ -77,6 +89,7 @@
 </template>
 
 <script setup lang="ts">
+import { Mic } from 'lucide-vue-next';
 import { computed, ref } from 'vue';
 import { useChat } from 'ai/vue';
 import { format, formatDistance, formatRelative, subDays } from 'date-fns';
@@ -85,61 +98,42 @@ import { makeTTS } from '@/lib/tts';
 import { completeMessages } from '@/lib/llm';
 import { createGMPrompt, createStateSnapshot } from '@/lib/GM/prompts/func';
 import * as gmPrompts from '@/lib/GM/prompts/str';
-import { shouldProceed, TickInterval as gmTickInterval } from '@/lib/GM/utils';
+import {
+	shouldProceed,
+	TickInterval as gmTickInterval,
+	getAvailableFunctions,
+} from '@/lib/GM/utils';
 import { useChatStore } from '@/stores/chat';
 import { useGMStore } from '@/stores/gm';
 import { useStreamStore } from '@/stores/stream';
 import { ChatMessage } from '@/types/main';
+import { TickManager, TickEvent } from '@/lib/TickManager';
+
+// mic icon (with pulse) when Reading
+// spinner when Generating
+
+class Story {
+	parts: string[] = [];
+	partInputs: string[] = []; // maybe unnecessary
+
+	writeFirstPart(input: string) {
+		this.partInputs.push(input);
+
+		// prompt to write the first part of the story
+	}
+
+	// reviseFirstPart
+	//
+	// writeNextPart
+}
 
 const twitchChat = useChatStore();
 const gm = useGMStore();
 const stream = useStreamStore();
 
+const tickMan = new TickManager();
+
 const tts = ref(false);
-
-const starterMessages = ['hey whats up', 'what are we doing?'];
-
-// new notes
-// how about we pre-generate some introductory dialogues for the GM and cycle through those when there are no viewers
-// when there are viewers, the GM talks to the viewers and encourages them to say something in the chat to start or progress the story
-// we'll want to have a mechanism for auto-progressing the story if there's no activity, to make for _something_ to happen
-// for the first 15m:
-// - have automatic "suggestions" that get added to the story
-//   - partially to demonstrate how you can interact with the stream
-//   - partially to get/keep the story moving
-//   - can be displayed on screen, or maybe submitted by a bot in chat
-// - GM is mainly talking to introduce the stream/game and about any recent activity
-
-// this is already implied, but to be more explicit: we'll have phases of the stream
-// right now there are 2 -- intro and main
-// intro is the first 15m, main is the rest
-// we may/probably don't need to include other sections' whole thread in the context (perhaps a summary)
-
-// lets say that we have a running summary during the intro phase
-// suggestions will update the summary in a "yes, and" fashion
-// the summary is kept on screen during intro
-// heres a question: does the game maker use functions to do stuff?
-
-// as far as layout:
-//   in intro we can have GM (with its pic) in the middle,
-//     summary on the right, chat on the left
-
-// once 15m is up (at a natural break), GM moves to the right and image(s) show up prominently in the middle
-// then GM starts taking suggestions from chat:
-// - we do polling like we do now to react to new messages in batches
-// - have a cutoff of like 5m of no new messages to do a forced progression
-// - when we have some kind of progression, then take whatever the input is (chat or synthetic) and generate the response for GM and have the GM generate the input for the next progression
-//   - another llm (something on openrouter) is actually generating the story from the input that GM gives
-// - once next part of the story is generated, we can start generating and display:
-//   - accompanying image(s)
-//   - tts (narration and character dialogue eventually)
-//   - next GM dialogue
-// - a note: i think we should use a rolling context + rolling summary for the truncated ctx (for all llm usage probably)
-
-// idea: GM has 2+ message threads that we maintain:
-// - thread interacting with the chat
-// - thread crafting the story (_possibly_ a one-off)
-//   - perhaps we keep track of e.g. goals for the story and include those in an inner-monologue to improve quality
 
 async function doSubmit() {
 	twitchChat.append({
@@ -153,21 +147,42 @@ async function doSubmit() {
 
 const input = ref('');
 
-setInterval(() => {
-	if (!stream.startedAtTS) return;
-	const elapsed = Date.now() - stream.startedAtTS;
-	const elapsedMinutes = Math.floor(elapsed / 60000);
-	stream.duration = `${elapsedMinutes} minute${elapsedMinutes > 1 ? 's' : ''}`;
-}, 1000);
+const durationUpdate = new TickEvent(
+	60_000,
+	() => {
+		if (!stream.startedAtTS) return;
+		// e.g. "00:03" (3 minutes)
+
+		const elapsed = Date.now() - stream.startedAtTS;
+		const minutes = Math.floor(elapsed / 60000);
+		const hours = Math.floor(minutes / 60);
+		const mins = minutes % 60;
+		stream.duration = `${hours.toString().padStart(2, '0')}:${mins
+			.toString()
+			.padStart(2, '0')}`;
+	},
+	true
+);
+tickMan.addEvent(durationUpdate);
 
 gm.updateSysMessage(gmPrompts.InitialSysPrompt);
 
-let interval: NodeJS.Timeout | null = null;
+let resume = false;
 
 async function startStream() {
+	if (tickMan.running.value) {
+		tickMan.stop();
+		return;
+	}
+
+	if (resume) {
+		tickMan.start();
+		return;
+	}
+
+	const now = new Date();
 	if (!stream.startedAt) {
 		// start stream (set interval)
-		const now = new Date();
 		const hours = now.getHours().toString().padStart(2, '0');
 		const minutes = now.getMinutes().toString().padStart(2, '0');
 		stream.startedAt = `${hours}:${minutes}`;
@@ -175,32 +190,39 @@ async function startStream() {
 	} else {
 		// set TS to the value of streamStartedAt (doesnt work)
 		const [hours, minutes] = stream.startedAt.split(':');
-		const now = new Date();
 		now.setHours(parseInt(hours));
 		now.setMinutes(parseInt(minutes));
 		stream.startedAtTS = now.getTime();
 	}
 
-	interval = setInterval(tick, gmTickInterval);
+	// interval = setInterval(tick, gmTickInterval);
+	tickMan.start();
+	gm.intro25WaitStartedAt = now.getTime();
+	resume = true;
 }
 
 // what does tick do:
-// - (prevent running multiple instances of tick)
 // - skip if we shouldnt proceed (from gm/utils)
 // - update gm prompt + add state snapshot message
 // - get response from llm, add to gm messages, set gm speech
 // - if tts is enabled, generate tts and play it
 //
 
-(window as any).tickId = Math.random().toString(36).substring(7);
 async function tick() {
-	if ((window as any).tickId !== (window as any).tickId) {
-		clearInterval(interval as NodeJS.Timeout);
-		return;
-	}
 	if (!(await shouldProceed())) return;
 
 	gm.isGenerating = true;
+
+	// gm should manage currentIdeas array between writing phases
+	// when does it make sense to do that?
+	//
+	// how about before dialogue, include "GM updated ideas list" in latest state message
+	// should mention that he updated the list
+	//
+	// how about: have llm respond with function call every time
+	//   have "message" function to talk to audience
+	//   "update_ideas" function to update the ideas list
+	//   "message" is required once for each turn
 
 	// gm prompt derives a new system prompt from
 	//   the current state of everything
@@ -226,8 +248,10 @@ async function tick() {
 		[sysMsg, ...gm.messages.slice(1), stateMsg],
 		{
 			// type: 'openai',
+			type: 'openrouter',
 			max: 256,
 			temperature: 0.25,
+			tools: getAvailableFunctions(),
 		}
 	);
 
@@ -248,6 +272,7 @@ async function tick() {
 	// ^ result is used as input to write the next part of the story
 	// the story is written as a growing thread of messages
 	//   for completion, rolling summary is used but we keep the full context
+	//   we could do an inner monologue with the input and the whole story to try to bridge the gap of missing context at the cost of more latency
 
 	console.log('new msgs', gm.messages);
 
@@ -279,6 +304,8 @@ async function tick() {
 		gm.waitStartedAt = Date.now();
 	};
 }
+const tickEv = new TickEvent(gmTickInterval, tick);
+tickMan.addEvent(tickEv);
 </script>
 
 <style>

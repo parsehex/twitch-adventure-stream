@@ -13,6 +13,7 @@ openaiRouter.post('/api/openai/message', async (req, res) => {
 		messages,
 		seed,
 		model = DefaultModel,
+		tools,
 	} = req.body || {};
 
 	if (messages.length === 0) {
@@ -26,9 +27,10 @@ openaiRouter.post('/api/openai/message', async (req, res) => {
 		max_tokens,
 		temperature,
 		seed,
+		tools,
 	});
 
-	res.json({ message: aiResponse.choices[0].message });
+	res.json({ message: aiResponse.choices[0].message, res: aiResponse });
 });
 
 openaiRouter.post('/api/openai/completion', async (req, res) => {

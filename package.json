@@ -10,7 +10,7 @@
     "watch-ts": "tsc --watch -p server/tsconfig.json",
     "watch-css": "npx tailwindcss build -w -i src/index.css -o public/styles.css",
     "wait": "wait-on server-out/main.js && concurrently \"npm:watch-server\" \"npm:watch-css\"",
-    "llamacpp:win": ".\\start_llamacpp.bat"
+    "llamacpp:win": "@powershell -NoProfile -ExecutionPolicy Unrestricted -Command .\\start_llamacpp.ps1"
   },
   "dependencies": {
     "@orama/orama": "^2.0.19",
